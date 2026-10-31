@@ -100,8 +100,11 @@ func TestPaySaveSeededCldxIntegration(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	Mount(mux, func() *pgxpool.Pool { return pool })
+	if _, err := pool.Exec(ctx, "INSERT INTO admin_users(id,username,password,name) VALUES(1,'fixture','fixture-hash','店主')"); err != nil {
+		t.Fatal(err)
+	}
 	u := session{UID: 1, Exp: time.Now().Add(time.Hour).Unix(), Name: "店主"}
-	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0))}
+	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0), "fixture-hash")}
 
 	// Disable the seeded row without inventing merchant values.
 	v := payValues("cldx", "", "", "0")
@@ -178,8 +181,11 @@ func TestOrderRedeliverIntegration(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	Mount(mux, func() *pgxpool.Pool { return pool })
+	if _, err := pool.Exec(ctx, "INSERT INTO admin_users(id,username,password,name) VALUES(1,'fixture','fixture-hash','店主')"); err != nil {
+		t.Fatal(err)
+	}
 	u := session{UID: 1, Exp: time.Now().Add(time.Hour).Unix(), Name: "店主"}
-	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0))}
+	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0), "fixture-hash")}
 	post := func(path string) *httptest.ResponseRecorder {
 		req := formReq(t, "POST", path, url.Values{"_token": {csrfToken(u)}})
 		req.AddCookie(cookie)
@@ -434,7 +440,7 @@ func TestCSRFTokenRequiredOnAdminPost(t *testing.T) {
 	mux := http.NewServeMux()
 	Mount(mux, nil)
 	u := session{UID: 3, Exp: time.Now().Add(time.Hour).Unix(), Name: "店主"}
-	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0))}
+	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0), "fixture-hash")}
 	post := func(v url.Values) *httptest.ResponseRecorder {
 		req := formReq(t, "POST", "/admin/goods/1/delete", v)
 		req.AddCookie(cookie)
