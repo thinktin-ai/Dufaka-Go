@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -71,6 +72,7 @@ type View struct {
 }
 
 type session struct {
+	Auth string `json:"auth"`
 	UID  int64  `json:"uid"`
 	Exp  int64  `json:"exp"`
 	Name string `json:"name"`
@@ -221,6 +223,23 @@ func (s *Server) authed(next func(http.ResponseWriter, *http.Request, session)) 
 				return
 			}
 		}
+		// Logout only clears this browser cookie and remains available during a DB outage.
+		if r.URL.Path != "/admin/logout" {
+			if !s.ready(w, u) {
+				return
+			}
+			var hash string
+			err := s.db().QueryRow(r.Context(), "SELECT password FROM admin_users WHERE id=$1", u.UID).Scan(&hash)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, "登录状态暂时无法验证，请稍后重试", http.StatusServiceUnavailable)
+				return
+			}
+			if err != nil || !hmac.Equal([]byte(u.Auth), []byte(sessionCredential(hash))) {
+				clearSession(w)
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+				return
+			}
+		}
 		next(w, r, u)
 	}
 }
@@ -304,12 +323,23 @@ func sessionKey() ([]byte, bool) {
 	return []byte(k), true
 }
 
-func signSession(uid int64, name string, exp time.Time) string {
+// Bind the session to the current password without publishing a password verifier.
+func sessionCredential(hash string) string {
+	key, ok := sessionKey()
+	if !ok || hash == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("admin-credential:" + hash))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func signSession(uid int64, name string, exp time.Time, hash string) string {
 	key, ok := sessionKey()
 	if !ok {
 		return ""
 	}
-	raw, _ := json.Marshal(session{UID: uid, Exp: exp.Unix(), Name: name})
+	raw, _ := json.Marshal(session{UID: uid, Exp: exp.Unix(), Name: name, Auth: sessionCredential(hash)})
 	mac := hmac.New(sha256.New, key)
 	mac.Write(raw)
 	return base64.RawURLEncoding.EncodeToString(raw) + "." + hex.EncodeToString(mac.Sum(nil))
@@ -335,7 +365,7 @@ func verifySession(token string, now time.Time) (session, bool) {
 		return session{}, false
 	}
 	var s session
-	if json.Unmarshal(raw, &s) != nil || s.UID <= 0 {
+	if json.Unmarshal(raw, &s) != nil || s.UID <= 0 || len(s.Auth) != 64 {
 		return session{}, false
 	}
 	if !now.Before(time.Unix(s.Exp, 0)) {
@@ -352,11 +382,11 @@ func currentUser(r *http.Request) (session, bool) {
 	return verifySession(c.Value, time.Now())
 }
 
-func setSession(w http.ResponseWriter, r *http.Request, uid int64, name string) {
+func setSession(w http.ResponseWriter, r *http.Request, uid int64, name, hash string) {
 	exp := time.Now().Add(sessionTTL)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
-		Value:    signSession(uid, name, exp),
+		Value:    signSession(uid, name, exp, hash),
 		Path:     "/admin",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,

@@ -391,7 +391,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(name) == "" {
 		name = user
 	}
-	setSession(w, r, id, name)
+	setSession(w, r, id, name, hash)
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
 

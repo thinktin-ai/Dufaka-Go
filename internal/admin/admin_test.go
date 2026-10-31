@@ -36,7 +36,7 @@ func TestSessionHMAC(t *testing.T) {
 		t.Fatalf("cookie %s", cookieName)
 	}
 	t.Setenv("DUFAKA_SESSION_KEY", "test-key")
-	tok := signSession(7, "店主", time.Now().Add(time.Hour))
+	tok := signSession(7, "店主", time.Now().Add(time.Hour), "fixture-hash")
 	got, ok := verifySession(tok, time.Now())
 	if !ok || got.UID != 7 || got.Name != "店主" {
 		t.Fatalf("session %+v ok=%v", got, ok)
@@ -44,7 +44,7 @@ func TestSessionHMAC(t *testing.T) {
 	if _, ok := verifySession(tok+"x", time.Now()); ok {
 		t.Fatal("tampered token accepted")
 	}
-	expired := signSession(7, "店主", time.Now().Add(-time.Second))
+	expired := signSession(7, "店主", time.Now().Add(-time.Second), "fixture-hash")
 	if _, ok := verifySession(expired, time.Now()); ok {
 		t.Fatal("expired token accepted")
 	}
@@ -239,7 +239,7 @@ func TestRoutesDoNotRequireDatabase(t *testing.T) {
 
 	authed := httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/admin", nil)
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: signSession(1, "管理员", time.Now().Add(time.Hour))})
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: signSession(1, "管理员", time.Now().Add(time.Hour), "fixture-hash")})
 	mux.ServeHTTP(authed, req)
 	if authed.Code != http.StatusServiceUnavailable || !strings.Contains(authed.Body.String(), "数据库未连接") {
 		t.Fatalf("nil pool %d %s", authed.Code, authed.Body.String())
@@ -252,7 +252,7 @@ func TestRoutesDoNotRequireDatabase(t *testing.T) {
 		t.Fatalf("anonymous logout %d %s %q", out.Code, out.Header().Get("Location"), out.Header().Get("Set-Cookie"))
 	}
 	u := session{UID: 1, Exp: time.Now().Add(time.Hour).Unix(), Name: "管理员"}
-	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0))}
+	cookie := &http.Cookie{Name: cookieName, Value: signSession(u.UID, u.Name, time.Unix(u.Exp, 0), "fixture-hash")}
 	out = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/admin/logout", strings.NewReader(url.Values{"_token": {csrfToken(u)}}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
